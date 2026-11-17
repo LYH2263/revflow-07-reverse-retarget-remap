@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from fastapi import HTTPException
 
 from app.db import connect, rows_to_dicts
+from app.modules.reverse_retarget import family_exposure, family_maps
 
 
 def _now() -> str:
@@ -66,7 +67,22 @@ def list_entries(kind: str | None = None) -> list[dict]:
                 ORDER BY e.id
                 """
             ).fetchall()
-        return rows_to_dicts(rows)
+        rows = rows_to_dicts(rows)
+        old_to_new, _ = family_maps(conn)
+        new_to_olds: dict[str, list[str]] = {}
+        for o, n in old_to_new.items():
+            new_to_olds.setdefault(n, []).append(o)
+        for e in rows:
+            # 迁移前后键（来源：key_retargets 生效边），页面同源可查
+            e["迁移前键"] = "、".join(new_to_olds.get(e["entry_key"], []))
+            e["迁移后键"] = [old_to_new[e["entry_key"]]] if e["entry_key"] in old_to_new else []
+            if e["kind"] == "冲正" and e.get("target_entry_key"):
+                e["目标迁移前键"] = next(
+                    (o for o, n in old_to_new.items() if n == e["target_entry_key"]), ""
+                )
+            else:
+                e["目标迁移前键"] = ""
+        return rows
 
 
 def list_quarantine() -> list[dict]:
@@ -119,20 +135,26 @@ def run_settle() -> dict:
                 "SELECT * FROM ledger_entries WHERE kind = '冲正' AND status = '待归并' ORDER BY id"
             ).fetchall()
         )
-        fwd_by_key = {f["entry_key"]: f for f in forwards}
+        # 迁移家族：旧键冲正重指向后，按家族（新键为头）共享正向额度
+        old_to_new, members = family_maps(conn)
+        all_forwards = {
+            r["entry_key"]: dict(r)
+            for r in conn.execute("SELECT * FROM ledger_entries WHERE kind = '正向'").fetchall()
+        }
 
-        # 每个正向已占用冲正额度
-        used: dict[str, int] = {f["entry_key"]: 0 for f in forwards}
+        # 每个正向家族已占用冲正额度（含历史轮已归并冲正，与 family_exposure 同源）
+        used: dict[str, int] = {}
+        for head in members:
+            used[head] = family_exposure(conn, head, members)["reversed_cents"]
         settled = 0
         quarantined = 0
-        account_net: dict[int, int] = {}
-
-        for f in forwards:
-            account_net[f["account_id"]] = account_net.get(f["account_id"], 0) + f["amount_cents"]
 
         for r in reversals:
             target = r.get("target_entry_key")
-            if not target or target not in fwd_by_key:
+            head = old_to_new.get(target, target) if target else None
+            # 家族头正向（可能在历史轮已归并不在本轮 fwd_by_key，故查全量）
+            fwd = all_forwards.get(head) if head else None
+            if not target or fwd is None:
                 conn.execute(
                     """
                     INSERT INTO quarantine_items(
@@ -148,7 +170,6 @@ def run_settle() -> dict:
                 quarantined += 1
                 continue
 
-            fwd = fwd_by_key[target]
             if fwd["account_id"] != r["account_id"]:
                 conn.execute(
                     """
@@ -165,7 +186,9 @@ def run_settle() -> dict:
                 quarantined += 1
                 continue
 
-            remain = fwd["amount_cents"] - used[target]
+            # 家族正向额度 = 家族成员正向金额合计；已用 = 家族有效冲正累计
+            quota = family_exposure(conn, head, members)["forward_cents"]
+            remain = quota - used[head]
             if r["amount_cents"] > remain:
                 conn.execute(
                     """
@@ -182,8 +205,7 @@ def run_settle() -> dict:
                 quarantined += 1
                 continue
 
-            used[target] += r["amount_cents"]
-            account_net[r["account_id"]] = account_net.get(r["account_id"], 0) - r["amount_cents"]
+            used[head] += r["amount_cents"]
             conn.execute(
                 "UPDATE ledger_entries SET status = '已归并', settle_run_id = ? WHERE id = ?",
                 (run_id, r["id"]),
@@ -197,15 +219,27 @@ def run_settle() -> dict:
             )
             settled += 1
 
+        # 余额与互证同源：按全量「已归并」流水重算每个账户的净额并整表覆盖写，
+        # 多轮归并后未触及账户也不会留下过期余额（隔离冲正不计入）
+        net_rows = conn.execute(
+            """
+            SELECT account_id,
+                   COALESCE(SUM(CASE WHEN kind = '正向' THEN amount_cents
+                                     WHEN kind = '冲正' THEN -amount_cents END), 0) AS net
+            FROM ledger_entries
+            WHERE status = '已归并'
+            GROUP BY account_id
+            """
+        ).fetchall()
+        net_map = {r["account_id"]: r["net"] for r in net_rows}
         net_total = 0
-        for acc_id, net in account_net.items():
+        for acc in conn.execute("SELECT id FROM accounts ORDER BY id").fetchall():
+            net = net_map.get(acc["id"], 0)
             conn.execute(
                 "UPDATE accounts SET balance_cents = ?, last_settle_run_id = ? WHERE id = ?",
-                (net, run_id, acc_id),
+                (net, run_id, acc["id"]),
             )
             net_total += net
-
-        # 无流水账户余额清零（本轮未触及则保持；底座简化：仅写触及账户）
         finished = _now()
         conn.execute(
             """

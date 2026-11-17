@@ -6,6 +6,7 @@ import ReversalEntries from './pages/ReversalEntries.vue'
 import SettleDesk from './pages/SettleDesk.vue'
 import Quarantine from './pages/Quarantine.vue'
 import Verify from './pages/Verify.vue'
+import Retarget from './pages/Retarget.vue'
 
 export default createRouter({
   history: createWebHistory(),
@@ -17,5 +18,6 @@ export default createRouter({
     { path: '/settle', component: SettleDesk },
     { path: '/quarantine', component: Quarantine },
     { path: '/verify', component: Verify },
+    { path: '/retarget', component: Retarget },
   ],
 })

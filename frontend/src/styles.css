@@ -428,3 +428,45 @@ tbody tr:hover { background: rgba(36, 87, 197, 0.04); }
   .stats { grid-template-columns: 1fr; }
   .stat { border-right: none; border-bottom: 1px solid var(--line); }
 }
+
+/* —— 键迁移台：表单与等宽键列 —— */
+.mono { font-family: var(--mono); font-size: 12px; }
+td.mono { word-break: break-all; }
+.muted { color: var(--muted); }
+td.reason { color: var(--warn); font-size: 12px; max-width: 260px; }
+.form-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.form-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  text-transform: uppercase;
+}
+.form-row input {
+  width: 260px;
+  padding: 9px 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink);
+  background: var(--panel);
+}
+.form-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(36, 87, 197, 0.15);
+}
+.form-row .arrow {
+  font-family: var(--mono);
+  font-size: 18px;
+  color: var(--accent);
+  padding-bottom: 9px;
+}

@@ -58,6 +58,28 @@ CREATE TABLE IF NOT EXISTS verify_reports (
   detail_json TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+-- 正向键迁移表（管道内键重映射，非主数据 SCD）：一行一次 old_key→new_key 登记
+-- 生效行不可变；失败行保留登记并记原因，不产生任何重指向
+CREATE TABLE IF NOT EXISTS key_retargets (
+  id INTEGER PRIMARY KEY,
+  settle_run_id INTEGER REFERENCES settle_runs(id),
+  old_entry_key TEXT NOT NULL,
+  new_entry_key TEXT NOT NULL,
+  account_id INTEGER REFERENCES accounts(id),
+  status TEXT NOT NULL,
+  retargeted_reversal_count INTEGER NOT NULL DEFAULT 0,
+  old_remain_cents INTEGER NOT NULL DEFAULT 0,
+  new_remain_cents INTEGER NOT NULL DEFAULT 0,
+  merged_remain_cents INTEGER NOT NULL DEFAULT 0,
+  fail_reason TEXT NOT NULL DEFAULT '',
+  created_at TEXT NOT NULL,
+  applied_at TEXT
+);
+-- 同一旧键至多一次生效迁移；同一新键至多被一次生效迁移并入（禁止链式/合并冲突）
+CREATE UNIQUE INDEX IF NOT EXISTS ux_retarget_old_active
+  ON key_retargets(old_entry_key) WHERE status = '生效';
+CREATE UNIQUE INDEX IF NOT EXISTS ux_retarget_new_active
+  ON key_retargets(new_entry_key) WHERE status = '生效';
 """
 
 

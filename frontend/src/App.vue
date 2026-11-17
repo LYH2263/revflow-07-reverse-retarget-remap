@@ -19,6 +19,7 @@
         <router-link to="/settle"><span class="idx">05</span>归并台</router-link>
         <router-link to="/quarantine"><span class="idx">06</span>未平隔离</router-link>
         <router-link to="/verify"><span class="idx">07</span>净额互证</router-link>
+        <router-link to="/retarget"><span class="idx">08</span>键迁移台</router-link>
       </nav>
 
       <div class="rail-note">

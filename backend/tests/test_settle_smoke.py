@@ -7,12 +7,24 @@ from fastapi.testclient import TestClient
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "backend"))
-os.environ["DATA_DIR"] = str(ROOT / "backend" / "data_test")
 os.environ["FIXTURES_DIR"] = str(ROOT / "fixtures")
 
-db_path = Path(os.environ["DATA_DIR"]) / "app.db"
-if db_path.exists():
-    db_path.unlink()
+TEST_DIR = ROOT / "backend" / "data_test"
+
+
+@pytest.fixture(scope="module", autouse=True)
+def isolated_db():
+    TEST_DIR.mkdir(parents=True, exist_ok=True)
+    db_file = TEST_DIR / "app.db"
+    if db_file.exists():
+        db_file.unlink()
+    prev = os.environ.get("DATA_DIR")
+    os.environ["DATA_DIR"] = str(TEST_DIR)
+    yield
+    if prev is None:
+        os.environ.pop("DATA_DIR", None)
+    else:
+        os.environ["DATA_DIR"] = prev
 
 from app.main import app  # noqa: E402
 
